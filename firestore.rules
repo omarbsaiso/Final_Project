@@ -1,0 +1,68 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userRecord() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasRole(role) {
+      return signedIn() && userRecord().role == role && userRecord().active == true;
+    }
+
+    function isAdmin() {
+      return hasRole('Admin');
+    }
+
+    function isSupervisor() {
+      return hasRole('Supervisor');
+    }
+
+    function canManageTeam() {
+      return isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if isAdmin()
+        && request.resource.data.role in ['Admin', 'Supervisor', 'Agent']
+        && request.resource.data.keys().hasOnly(['uid', 'name', 'email', 'role', 'team', 'active', 'createdAt']);
+      allow update: if isAdmin()
+        && request.resource.data.role in ['Admin', 'Supervisor', 'Agent']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'email', 'role', 'team', 'active']);
+      allow update: if signedIn() && request.auth.uid == userId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'language']);
+      allow delete: if isAdmin() && request.auth.uid != userId;
+    }
+
+    match /calls/{callId} {
+      allow read: if signedIn() && (
+        isAdmin() ||
+        (isSupervisor() && resource.data.team == userRecord().team) ||
+        (userRecord().role == 'Agent' && resource.data.agentId == request.auth.uid)
+      );
+      allow create: if signedIn() && (
+        isAdmin() ||
+        (isSupervisor() && request.resource.data.team == userRecord().team) ||
+        (userRecord().role == 'Agent' && request.resource.data.agentId == request.auth.uid)
+      );
+      allow update, delete: if isAdmin() ||
+        (isSupervisor() && resource.data.team == userRecord().team);
+    }
+
+    match /documents/{documentId} {
+      allow read: if signedIn() && (
+        isAdmin() ||
+        resource.data.visibility == 'Everyone' ||
+        (isSupervisor() && resource.data.team == userRecord().team)
+      );
+      allow create: if isAdmin() ||
+        (isSupervisor() && request.resource.data.team == userRecord().team);
+      allow update, delete: if isAdmin() ||
+        (isSupervisor() && resource.data.team == userRecord().team);
+    }
+  }
+}
