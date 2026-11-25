@@ -5,12 +5,20 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function userExists() {
+      return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function userRecord() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
+    function isActiveUser() {
+      return userExists() && userRecord().isActive == true;
+    }
+
     function hasRole(role) {
-      return signedIn() && userRecord().role == role && userRecord().active == true;
+      return isActiveUser() && userRecord().role == role;
     }
 
     function isAdmin() {
@@ -21,20 +29,30 @@ service cloud.firestore {
       return hasRole('Supervisor');
     }
 
-    function canManageTeam() {
-      return isAdmin();
+    function isAgent() {
+      return hasRole('Agent');
     }
 
     match /users/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
       allow create: if isAdmin()
+        && userId != request.auth.uid
+        && request.resource.data.uid == userId
+        && request.resource.data.keys().hasAll(['uid', 'fullName', 'email', 'role', 'createdAt', 'isActive'])
+        && request.resource.data.fullName is string
+        && request.resource.data.email is string
         && request.resource.data.role in ['Admin', 'Supervisor', 'Agent']
-        && request.resource.data.keys().hasOnly(['uid', 'name', 'email', 'role', 'team', 'active', 'createdAt']);
+        && request.resource.data.isActive is bool
+        && request.resource.data.keys().hasOnly(['uid', 'fullName', 'email', 'role', 'createdAt', 'isActive', 'team', 'language']);
       allow update: if isAdmin()
+        && request.auth.uid != userId
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fullName', 'role', 'team', 'isActive'])
+        && request.resource.data.fullName is string
         && request.resource.data.role in ['Admin', 'Supervisor', 'Agent']
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'email', 'role', 'team', 'active']);
-      allow update: if signedIn() && request.auth.uid == userId
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'language']);
+        && request.resource.data.isActive is bool;
+      allow update: if isActiveUser() && request.auth.uid == userId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fullName', 'language']);
       allow delete: if isAdmin() && request.auth.uid != userId;
     }
 
@@ -42,27 +60,66 @@ service cloud.firestore {
       allow read: if signedIn() && (
         isAdmin() ||
         (isSupervisor() && resource.data.team == userRecord().team) ||
-        (userRecord().role == 'Agent' && resource.data.agentId == request.auth.uid)
+        (isAgent() && resource.data.agentId == request.auth.uid)
       );
       allow create: if signedIn() && (
         isAdmin() ||
         (isSupervisor() && request.resource.data.team == userRecord().team) ||
-        (userRecord().role == 'Agent' && request.resource.data.agentId == request.auth.uid)
+        (isAgent() && request.resource.data.agentId == request.auth.uid)
       );
-      allow update, delete: if isAdmin() ||
-        (isSupervisor() && resource.data.team == userRecord().team);
+      allow update: if isAdmin() ||
+        (isSupervisor()
+          && resource.data.team == userRecord().team
+          && request.resource.data.team == userRecord().team
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']));
+      allow delete: if isAdmin();
     }
 
-    match /documents/{documentId} {
-      allow read: if signedIn() && (
+    match /knowledgeBase/{documentId} {
+      allow read: if isActiveUser() && (
         isAdmin() ||
         resource.data.visibility == 'Everyone' ||
         (isSupervisor() && resource.data.team == userRecord().team)
       );
-      allow create: if isAdmin() ||
-        (isSupervisor() && request.resource.data.team == userRecord().team);
-      allow update, delete: if isAdmin() ||
+      allow create: if (isAdmin() ||
+        (isSupervisor() && request.resource.data.team == userRecord().team))
+        && request.resource.data.visibility in ['Everyone', 'Supervisors']
+        && request.resource.data.keys().hasAll(['name', 'category', 'type', 'size', 'uploadedBy', 'visibility', 'team', 'uploadedAt', 'fileStored'])
+        && request.resource.data.fileStored == false;
+      allow update: if isAdmin() ||
+        (isSupervisor()
+          && resource.data.team == userRecord().team
+          && request.resource.data.team == userRecord().team
+          && request.resource.data.visibility in ['Everyone', 'Supervisors']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'category', 'visibility']));
+      allow delete: if isAdmin() ||
         (isSupervisor() && resource.data.team == userRecord().team);
+    }
+
+    match /feedback/{feedbackId} {
+      function callRecord() {
+        return get(/databases/$(database)/documents/calls/$(request.resource.data.callId)).data;
+      }
+
+      allow read: if isActiveUser() && (
+        isAdmin() ||
+        (isSupervisor() && resource.data.team == userRecord().team) ||
+        (isAgent() && resource.data.agentId == request.auth.uid)
+      );
+      allow create: if (isAdmin() || (isSupervisor() && request.resource.data.team == userRecord().team))
+        && request.resource.data.supervisorId == request.auth.uid
+        && request.resource.data.agentId == callRecord().agentId
+        && request.resource.data.team == callRecord().team
+        && request.resource.data.keys().hasOnly(['callId', 'agentId', 'team', 'supervisorId', 'message', 'createdAt'])
+        && request.resource.data.message is string
+        && request.resource.data.message.size() > 0;
+      allow update: if isAdmin() ||
+        (isSupervisor()
+          && resource.data.team == userRecord().team
+          && resource.data.supervisorId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['message']));
+      allow delete: if isAdmin() ||
+        (isSupervisor() && resource.data.team == userRecord().team && resource.data.supervisorId == request.auth.uid);
     }
   }
 }

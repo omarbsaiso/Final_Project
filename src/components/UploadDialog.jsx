@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { AlertCircle, FileAudio2, FileText, Upload, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { isFirebaseConfigured } from '../firebase/client';
 import { createCall, createDocument } from '../services/dataService';
-import { deleteStoredFile, uploadFile } from '../services/storageService';
 
 const configs = {
   call: {
@@ -66,12 +66,13 @@ export default function UploadDialog({ kind, onClose, onSaved }) {
       setError('Choose a file before continuing.');
       return;
     }
+    if (kind === 'call' && isFirebaseConfigured) {
+      setError('Audio uploads are unavailable until Firebase Storage is enabled.');
+      return;
+    }
     setSaving(true);
     setError('');
-    let uploadedPath = '';
     try {
-      const { url, path } = await uploadFile(file, kind === 'call' ? 'calls' : 'knowledge', user.uid, visibility, user.team || 'Customer Care');
-      uploadedPath = path;
       if (kind === 'call') {
         await createCall({
           customer: 'New customer',
@@ -87,8 +88,7 @@ export default function UploadDialog({ kind, onClose, onSaved }) {
           status: 'Processing',
           topic: title.trim(),
           summary: 'Analysis is pending. AI analysis has not run for this recording yet.',
-          audioUrl: url,
-          storagePath: path,
+          recordingAvailable: false,
         });
       } else {
         await createDocument({
@@ -98,22 +98,13 @@ export default function UploadDialog({ kind, onClose, onSaved }) {
           visibility,
           type: file.name.split('.').pop().toUpperCase(),
           uploadedBy: user.uid,
-          storagePath: path,
-          downloadUrl: url,
           team: user.team || 'Customer Care',
+          fileStored: false,
         });
       }
       onSaved();
     } catch (uploadError) {
-      let message = uploadError.message || 'The upload could not be completed. Please try again.';
-      if (uploadedPath) {
-        try {
-          await deleteStoredFile(uploadedPath);
-        } catch (cleanupError) {
-          message = `${message} The uploaded file could not be removed: ${cleanupError.message}`;
-        }
-      }
-      setError(message);
+      setError(uploadError.message || 'The record could not be saved. Please try again.');
       setSaving(false);
     }
   }
@@ -123,10 +114,13 @@ export default function UploadDialog({ kind, onClose, onSaved }) {
       <section className="upload-dialog" role="dialog" aria-modal="true" aria-labelledby="upload-title">
         <div className="dialog-heading">
           <div className="dialog-icon"><Icon size={20} /></div>
-          <div><h2 id="upload-title">{config.title}</h2><p>{kind === 'call' ? 'Add a recording to your call library.' : 'Share a resource with your support team.'}</p></div>
+          <div><h2 id="upload-title">{config.title}</h2><p>{kind === 'call' ? 'Add a demo call entry to your library.' : 'Save resource details for your support team.'}</p></div>
           <button className="icon-button dialog-close" aria-label="Close dialog" onClick={onClose} disabled={saving}><X size={19} /></button>
         </div>
         <form onSubmit={submit}>
+          <div className="alert alert-info py-2">{kind === 'call'
+            ? 'Demo mode only: the selected audio is not uploaded or saved.'
+            : 'Firebase Storage is postponed. Only document details are saved; the selected file is not stored.'}</div>
           <label className="form-label" htmlFor="file-title">{kind === 'call' ? 'Call topic' : 'Document details'}</label>
           {kind === 'call' ? (
             <input id="file-title" className="form-control mb-3" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Plan upgrade" required />
@@ -155,7 +149,7 @@ export default function UploadDialog({ kind, onClose, onSaved }) {
           {error && <div className="form-error mt-3"><AlertCircle size={16} />{error}</div>}
           <div className="dialog-actions">
             <button type="button" className="btn btn-light" onClick={onClose} disabled={saving}>Cancel</button>
-            <button type="submit" className="btn btn-primary-custom" disabled={saving}>{saving ? 'Uploading…' : 'Upload file'}</button>
+            <button type="submit" className="btn btn-primary-custom" disabled={saving}>{saving ? 'Saving…' : kind === 'call' ? 'Save demo call' : 'Save document details'}</button>
           </div>
         </form>
       </section>

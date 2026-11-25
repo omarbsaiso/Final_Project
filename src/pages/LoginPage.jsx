@@ -62,7 +62,7 @@ export default function LoginPage() {
           <div className="login-feature"><span><ShieldCheck size={18} /></span><div><strong>Coach with confidence</strong><small>Quality insights your team can act on</small></div></div>
           <div className="login-feature"><span><UsersRound size={18} /></span><div><strong>Help every agent thrive</strong><small>Celebrate wins and find opportunities to grow</small></div></div>
         </div>
-        <div className="login-brand-footer">© 2025 Call Miner, Inc. <span>Built for better conversations.</span></div>
+        <div className="login-brand-footer">© 2026 Call Miner, Inc. <span>Built for better conversations.</span></div>
       </section>
       <section className="login-form-panel">
         <div className="login-language">

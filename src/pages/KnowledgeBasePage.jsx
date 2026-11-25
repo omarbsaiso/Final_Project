@@ -4,7 +4,6 @@ import StatusBadge from '../components/StatusBadge';
 import UploadDialog from '../components/UploadDialog';
 import { useAuth } from '../context/AuthContext';
 import { listDocuments, removeDocument } from '../services/dataService';
-import { deleteStoredFile } from '../services/storageService';
 import { formatDateTime, formatFileSize } from '../utils/format';
 
 const categoryIcons = { Guides: 'G', Policies: 'P', FAQs: 'F', Training: 'T' };
@@ -41,7 +40,6 @@ export default function KnowledgeBasePage() {
   async function deleteDocument(document) {
     if (!window.confirm(`Delete “${document.name}” from the knowledge base?`)) return;
     try {
-      await deleteStoredFile(document.storagePath);
       await removeDocument(document.id);
       setDocuments((current) => current.filter((item) => item.id !== document.id));
     } catch (deleteError) {

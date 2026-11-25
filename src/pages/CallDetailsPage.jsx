@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router-dom';
 import StatusBadge from '../components/StatusBadge';
 import { useAuth } from '../context/AuthContext';
 import { getCallAnalysis } from '../services/analysisService';
-import { getCall, updateCall } from '../services/dataService';
+import { getCall, listFeedback, saveFeedback } from '../services/dataService';
 import { formatDateTime } from '../utils/format';
 
 export default function CallDetailsPage() {
@@ -15,14 +15,18 @@ export default function CallDetailsPage() {
   const [error, setError] = useState('');
   const [feedback, setFeedback] = useState('');
   const [savedFeedback, setSavedFeedback] = useState('');
+  const [feedbackEntries, setFeedbackEntries] = useState([]);
   const [feedbackBusy, setFeedbackBusy] = useState(false);
 
   useEffect(() => {
     setLoading(true);
-    getCall(callId, user).then((result) => {
+    getCall(callId, user).then(async (result) => {
       setCall(result);
-      setFeedback(result?.feedback || '');
-      setSavedFeedback(result?.feedback || '');
+      if (result) {
+        const entries = await listFeedback(callId, user);
+        setFeedbackEntries(entries);
+        setSavedFeedback(entries.at(-1)?.message || result.feedback || '');
+      }
     }).catch((loadError) => setError(loadError.message || 'Could not load this call.'))
       .finally(() => setLoading(false));
   }, [callId, user]);
@@ -32,9 +36,11 @@ export default function CallDetailsPage() {
     setFeedbackBusy(true);
     setError('');
     try {
-      await updateCall(callId, { feedback, status: 'Reviewed', reviewedBy: user.uid, reviewedAt: new Date().toISOString() });
-      setSavedFeedback(feedback);
-      setCall({ ...call, feedback, status: 'Reviewed' });
+      const saved = await saveFeedback(call, feedback, user);
+      setFeedbackEntries((current) => [...current, saved]);
+      setSavedFeedback(saved.message);
+      setFeedback('');
+      setCall({ ...call, status: 'Reviewed' });
     } catch (saveError) {
       setError(saveError.message || 'Could not save your feedback.');
     } finally {
@@ -81,7 +87,7 @@ export default function CallDetailsPage() {
           <section className="panel qa-summary-panel"><div className="panel-heading"><div><h2>Quality score</h2><p>Overall conversation rating</p></div><MoreHorizontal className="subtle-menu-button" aria-hidden="true" /></div>{Number.isFinite(score) ? <div className="qa-score-display"><div className="qa-score-ring" style={{ '--score': `${score * 3.6}deg` }}><div><strong>{score}</strong><span>/100</span></div></div><div><span className="score-pill"><Star size={13} fill="currentColor" />{score >= 90 ? 'Excellent' : score >= 80 ? 'Good' : 'Needs coaching'}</span><p>{score >= 90 ? 'A standout customer experience.' : score >= 80 ? 'A positive sample rating.' : 'A sample coaching opportunity.'}</p></div></div> : <div className="analysis-empty"><Clock3 size={16} />Quality evaluation is pending.</div>}<div className="qa-mini-stats"><div><strong>{analysis.criteria.length ? `${analysis.criteria.length}/${analysis.criteria.length}` : '—'}</strong><span>Criteria met</span></div><div><strong>{hasDetailedSample ? '+8' : '—'}</strong><span>vs. team avg.</span></div><div><strong>{hasDetailedSample ? 'Top 12%' : '—'}</strong><span>Team ranking</span></div></div></section>
           <section className="panel criteria-panel"><div className="panel-heading"><div><h2>Quality criteria</h2><p>Evaluation breakdown</p></div><MoreHorizontal className="subtle-menu-button" aria-hidden="true" /></div>{analysis.criteria.length ? <div className="criteria-list">{analysis.criteria.map((criterion) => <div className="criterion" key={criterion.name}><div className="criterion-top"><strong>{criterion.name}</strong><span className={criterion.score >= 90 ? 'criterion-good' : 'criterion-mid'}>{criterion.score}%</span></div><div className="criterion-bar"><span style={{ width: `${criterion.score}%` }} /></div><p>{criterion.note}</p></div>)}</div> : <div className="analysis-empty">{isSample ? 'No sample evaluation criteria are available for this call.' : 'Evaluation criteria are pending.'}</div>}</section>
           <section className="panel sentiment-detail-panel"><div className="panel-heading"><div><h2>Customer sentiment</h2><p>Overall conversation tone</p></div></div><div className="sentiment-detail-row"><span className="sentiment-face"><ThumbsUp size={18} /></span><div><strong>{analysis.sentiment}</strong><span>{hasDetailedSample ? 'Sample result' : isSample ? 'Sample label' : analysis.sentimentConfidence ? 'Confident signal' : 'Awaiting analysis'}</span></div><span className="sentiment-confidence">{analysis.sentimentConfidence ? `${analysis.sentimentConfidence}%` : '—'}</span></div><div className="sentiment-callout"><span>“</span><p>{hasDetailedSample ? 'Customer ended the call feeling confident about their plan choice.' : isSample ? 'Sentiment is an illustrative sample label, not a result generated from this recording.' : 'Sentiment insights will appear when analysis is available.'}</p></div></section>
-          <section className="panel feedback-panel"><div className="panel-heading"><div><h2>Supervisor feedback</h2><p>Coaching notes for this call</p></div><MessageSquareText size={17} className="feedback-icon" /></div>{user.role === 'Agent' ? <div className="feedback-readonly">{savedFeedback || 'No supervisor feedback has been added yet.'}</div> : <form onSubmit={saveFeedback}><textarea className="form-control" rows="4" value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="Write feedback for the agent…" /><div className="feedback-footer"><span>{savedFeedback ? <><Check size={13} /> Saved feedback</> : 'Visible to supervisors and agents'}</span><button className="btn btn-primary-custom btn-sm" disabled={feedbackBusy || !feedback.trim()}>{feedbackBusy ? 'Saving…' : <><Send size={14} />Save note</>}</button></div></form>}</section>
+          <section className="panel feedback-panel"><div className="panel-heading"><div><h2>Supervisor feedback</h2><p>Coaching notes for this call</p></div><MessageSquareText size={17} className="feedback-icon" /></div>{feedbackEntries.length > 0 && <div className="feedback-readonly">{feedbackEntries.map((entry) => <p key={entry.id}>{entry.message}</p>)}</div>}{user.role === 'Agent' ? !feedbackEntries.length && <div className="feedback-readonly">{savedFeedback || 'No supervisor feedback has been added yet.'}</div> : <form onSubmit={saveFeedback}><textarea className="form-control" rows="4" value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="Write feedback for the agent…" /><div className="feedback-footer"><span>Visible to supervisors and agents</span><button className="btn btn-primary-custom btn-sm" disabled={feedbackBusy || !feedback.trim()}>{feedbackBusy ? 'Saving…' : <><Send size={14} />Save note</>}</button></div></form>}</section>
         </aside>
       </div>
       <div className="detail-footer-note"><Clock3 size={14} />{isSample ? 'Review uses illustrative sample evaluation data' : 'Analysis status: pending'} <span>·</span> <RotateCcw size={14} />Last updated just now</div>

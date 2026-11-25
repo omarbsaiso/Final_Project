@@ -17,7 +17,7 @@
       ]
     },
     {
-      "collectionGroup": "documents",
+      "collectionGroup": "knowledgeBase",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "visibility", "order": "ASCENDING" },
@@ -25,12 +25,20 @@
       ]
     },
     {
-      "collectionGroup": "documents",
+      "collectionGroup": "knowledgeBase",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "visibility", "order": "ASCENDING" },
         { "fieldPath": "team", "order": "ASCENDING" },
         { "fieldPath": "uploadedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "feedback",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "callId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
       ]
     }
   ],

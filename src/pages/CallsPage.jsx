@@ -83,7 +83,7 @@ export default function CallsPage() {
     <div className="page-enter">
       <div className="page-heading">
         <div><div className="eyebrow-label">CALL LIBRARY <span className="eyebrow-dot" /> QUALITY & INSIGHTS</div><h1>Calls</h1><p>Review conversations and discover what matters to your customers.</p></div>
-        <div className="heading-actions"><button className="btn btn-outline-custom" onClick={exportCalls}><Download size={16} />Export</button><button className="btn btn-primary-custom" onClick={() => setUploadOpen(true)}><Plus size={17} />{t('uploadCall')}</button></div>
+        <div className="heading-actions"><button className="btn btn-outline-custom" onClick={exportCalls}><Download size={16} />Export</button>{demoMode ? <button className="btn btn-primary-custom" onClick={() => setUploadOpen(true)}><Plus size={17} />{t('uploadCall')}</button> : <button className="btn btn-primary-custom" disabled title="Audio uploads are unavailable until Firebase Storage is enabled"><Plus size={17} />Audio uploads unavailable</button>}</div>
       </div>
       <div className="calls-overview-strip">
         <div><span className="overview-icon overview-icon-blue"><Headphones size={17} /></span><span><strong>{totalCount}</strong><small>Total recordings</small></span></div>

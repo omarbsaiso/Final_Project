@@ -8,12 +8,20 @@ import {
   signOut,
   updateProfile,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db, getSecondaryApp, isFirebaseConfigured } from '../firebase/client';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { auth, authPersistence, db, getSecondaryApp, isFirebaseConfigured } from '../firebase/client';
 import { demoUsers } from '../data/demoData';
 import { listUsers } from './dataService';
 
 const DEMO_PASSWORD = 'Demo123!';
+const validRoles = ['Admin', 'Supervisor', 'Agent'];
+
+function normalizeUser(uid, data) {
+  const fullName = data.fullName || data.name || '';
+  const isActive = data.isActive ?? data.active ?? false;
+  if (!validRoles.includes(data.role)) return null;
+  return { ...data, uid, fullName, name: fullName, isActive, active: isActive };
+}
 
 function getDemoUsers() {
   try {
@@ -51,18 +59,22 @@ export async function signIn(email, password) {
     return sessionUser;
   }
 
+  await authPersistence;
   const credential = await signInWithEmailAndPassword(auth, email, password);
-  const profile = await getDoc(doc(db, 'users', credential.user.uid));
-  if (!profile.exists()) {
+  try {
+    const profile = await getDoc(doc(db, 'users', credential.user.uid));
+    if (!profile.exists()) {
+      throw new Error('Your account profile is missing. Ask an administrator to finish setting it up.');
+    }
+    const user = normalizeUser(credential.user.uid, profile.data());
+    if (!user || !user.isActive) {
+      throw new Error('This account is unavailable. Contact an administrator.');
+    }
+    return user;
+  } catch (error) {
     await signOut(auth);
-    throw new Error('Your account profile is missing. Ask an administrator to finish setting it up.');
+    throw error;
   }
-  const user = { uid: credential.user.uid, ...profile.data() };
-  if (!user.active) {
-    await signOut(auth);
-    throw new Error('This account is disabled. Contact an administrator.');
-  }
-  return user;
 }
 
 export async function sendPasswordReset(email) {
@@ -71,6 +83,7 @@ export async function sendPasswordReset(email) {
     if (!exists) throw new Error('No demo account uses that email address.');
     return;
   }
+  await authPersistence;
   await sendPasswordResetEmail(auth, email);
 }
 
@@ -87,24 +100,36 @@ export function subscribeToAuth(callback) {
     callback(latestUser?.active ? latestUser : null);
     return () => {};
   }
-  return onAuthStateChanged(auth, async (firebaseUser) => {
-    if (!firebaseUser) {
-      callback(null);
-      return;
-    }
-    try {
-      const profile = await getDoc(doc(db, 'users', firebaseUser.uid));
-      const data = profile.exists() ? profile.data() : null;
-      if (!data || !data.active) {
-        await signOut(auth);
+  let cancelled = false;
+  let unsubscribe = () => {};
+  let unsubscribeProfile = () => {};
+  authPersistence.then(() => {
+    if (cancelled) return;
+    unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      unsubscribeProfile();
+      if (!firebaseUser) {
         callback(null);
         return;
       }
-      callback({ uid: firebaseUser.uid, ...data });
-    } catch (error) {
-      callback(null, error);
-    }
-  });
+      unsubscribeProfile = onSnapshot(doc(db, 'users', firebaseUser.uid), async (profile) => {
+        const user = profile.exists() ? normalizeUser(firebaseUser.uid, profile.data()) : null;
+        if (!user || !user.isActive) {
+          await signOut(auth);
+          callback(null);
+          return;
+        }
+        callback(user);
+      }, (error) => {
+        callback(null, error);
+        if (error.code === 'permission-denied') signOut(auth);
+      });
+    }, (error) => callback(null, error));
+  }).catch((error) => callback(null, error));
+  return () => {
+    cancelled = true;
+    unsubscribe();
+    unsubscribeProfile();
+  };
 }
 
 export async function updateCurrentProfile(user, updates) {
@@ -115,9 +140,15 @@ export async function updateCurrentProfile(user, updates) {
     localStorage.setItem('call-miner-session', JSON.stringify(nextUser));
     return nextUser;
   }
-  await setDoc(doc(db, 'users', user.uid), updates, { merge: true });
+  const firestoreUpdates = { ...updates };
+  if (Object.hasOwn(firestoreUpdates, 'name')) {
+    firestoreUpdates.fullName = firestoreUpdates.name;
+    delete firestoreUpdates.name;
+  }
+  await setDoc(doc(db, 'users', user.uid), firestoreUpdates, { merge: true });
+  const nextUser = normalizeUser(user.uid, { ...user, ...updates, ...firestoreUpdates });
   if (updates.name) await updateProfile(auth.currentUser, { displayName: updates.name });
-  return { ...user, ...updates };
+  return nextUser;
 }
 
 export async function createTeamMember(member) {
@@ -140,14 +171,17 @@ export async function createTeamMember(member) {
     if (member.name) await updateProfile(credential.user, { displayName: member.name });
     const user = {
       uid: credential.user.uid,
+      fullName: member.name,
       name: member.name,
       email: member.email,
       role: member.role,
       team: member.team,
+      isActive: true,
       active: true,
       createdAt: new Date().toISOString(),
     };
-    await setDoc(doc(db, 'users', credential.user.uid), user);
+    const { name, active, ...profile } = user;
+    await setDoc(doc(db, 'users', credential.user.uid), profile);
     return user;
   } catch (error) {
     try {
@@ -167,8 +201,12 @@ export async function saveTeamMember(member) {
     localStorage.setItem('call-miner-users', JSON.stringify(users));
     return member;
   }
-  const { uid, ...updates } = member;
-  await setDoc(doc(db, 'users', uid), updates, { merge: true });
+  const { uid, name, active, ...updates } = member;
+  await setDoc(doc(db, 'users', uid), {
+    ...updates,
+    ...(name !== undefined ? { fullName: name } : {}),
+    ...(active !== undefined ? { isActive: active } : {}),
+  }, { merge: true });
   return member;
 }
 
