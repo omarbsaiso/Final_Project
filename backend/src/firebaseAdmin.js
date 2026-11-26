@@ -14,15 +14,19 @@ export function initializeFirebaseAdmin() {
   let serviceAccount;
 
   try {
-    const serviceAccountPath = path.join(
-      config.backendRoot,
-      'serviceAccountKey.json'
-    );
+    if (config.firebaseServiceAccountJson) {
+      serviceAccount = JSON.parse(config.firebaseServiceAccountJson);
+    } else {
+      const serviceAccountPath = path.join(
+        config.backendRoot,
+        'serviceAccountKey.json'
+      );
 
-    const fileContent = readFileSync(serviceAccountPath, 'utf8');
-    serviceAccount = JSON.parse(fileContent);
+      const fileContent = readFileSync(serviceAccountPath, 'utf8');
+      serviceAccount = JSON.parse(fileContent);
+    }
   } catch {
-    throw new Error('Could not read Firebase service account JSON file.');
+    throw new Error('Could not read Firebase service account credentials.');
   }
 
   if (
