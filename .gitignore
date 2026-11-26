@@ -7,3 +7,7 @@ dist/
 Thumbs.db
 *.log
 .firebase/
+backend/.env
+backend/.env.*
+backend/uploads/audio/
+backend/serviceAccountKey.json

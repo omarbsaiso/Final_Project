@@ -1,68 +1,105 @@
-import { deleteObject, getBlob, ref, uploadBytes } from 'firebase/storage';
-import { isFirebaseConfigured, storage } from '../firebase/client';
+import { auth, authPersistence } from '../firebase/client';
 
-const maxRecordingSize = 100 * 1024 * 1024;
-
-function logStorageFailure(operation, error) {
-  const code = typeof error?.code === 'string' ? error.code : error?.name || 'UnknownError';
-  console.error(`[Storage] ${operation} failed`, { code });
-}
-
-function storageErrorMessage(error, operation) {
-  if (error?.code === 'storage/unauthorized') {
-    return 'Firebase Storage denied this request. Check the user role and deployed Storage rules.';
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001').replace(/\/+$/, '');
+async function getIdToken(language) {
+  await authPersistence;
+  if (!auth?.currentUser) {
+    throw new Error(language === 'ar' ? 'انتهت جلسة الدخول. سجّل الدخول مجددًا.' : 'Your session has expired. Sign in again.');
   }
-  if (error?.code === 'storage/object-not-found') {
-    return 'The audio file was not found in Firebase Storage.';
-  }
-  if (error?.code === 'storage/bucket-not-found') {
-    return 'The Firebase Storage bucket is unavailable. Check VITE_FIREBASE_STORAGE_BUCKET.';
-  }
-  return `Firebase Storage could not ${operation} the audio file. Check the connection and Storage configuration.`;
-}
-
-function requireStorage() {
-  if (!isFirebaseConfigured || !storage) {
-    throw new Error('Firebase Storage is not configured. Check the Firebase web app settings and restart the app.');
-  }
-}
-
-export async function uploadCallRecording(file, callId) {
-  requireStorage();
-  if (!file || !callId) throw new Error('A recording and call ID are required.');
-
-  const safeName = file.name.replace(/[^\w.-]/g, '_') || 'recording';
-  const contentType = file.name.toLowerCase().endsWith('.mp3') ? 'audio/mpeg' : 'audio/wav';
-  if (file.size > maxRecordingSize) throw new Error('Audio files must be smaller than 100 MB.');
-
-  const objectRef = ref(storage, `calls/${callId}/${crypto.randomUUID()}-${safeName}`);
   try {
-    const result = await uploadBytes(objectRef, file, { contentType });
-    return result.ref.fullPath;
-  } catch (error) {
-    logStorageFailure('upload', error);
-    throw new Error(storageErrorMessage(error, 'upload'));
+    return await auth.currentUser.getIdToken();
+  } catch {
+    throw new Error(language === 'ar' ? 'تعذر التحقق من جلسة الدخول. سجّل الدخول مجددًا.' : 'Could not verify your session. Sign in again.');
   }
 }
 
-export async function downloadCallRecording(path) {
-  requireStorage();
-  if (!path?.startsWith('calls/')) throw new Error('The audio file path is invalid.');
+async function apiFetch(url, options, language) {
   try {
-    return await getBlob(ref(storage, path), maxRecordingSize);
-  } catch (error) {
-    logStorageFailure('download', error);
-    throw new Error(storageErrorMessage(error, 'download'));
+    return await fetch(url, options);
+  } catch {
+    throw new Error(language === 'ar'
+      ? 'تعذر الاتصال بخادم المعالجة. تحقق من تشغيل الخادم.'
+      : 'Could not reach the processing server. Check that it is running.');
   }
 }
 
-export async function deleteCallRecording(path) {
-  requireStorage();
-  if (!path?.startsWith('calls/')) throw new Error('The audio file path is invalid.');
+async function readApiResponse(response, language) {
+  let payload;
   try {
-    await deleteObject(ref(storage, path));
-  } catch (error) {
-    logStorageFailure('delete', error);
-    throw new Error(storageErrorMessage(error, 'delete'));
+    payload = await response.json();
+  } catch {
+    payload = null;
   }
+  if (!response.ok) {
+    const message = payload?.error?.message;
+    throw new Error(message || (language === 'ar'
+      ? 'تعذر إكمال الطلب. حاول مجددًا.'
+      : 'The request could not be completed. Please try again.'));
+  }
+  return payload;
+}
+
+export async function uploadCallRecording(file, topic, language, onProgress) {
+  const token = await getIdToken(language);
+  const formData = new FormData();
+  formData.append('audio', file);
+  formData.append('topic', topic);
+
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open('POST', `${apiBaseUrl}/api/calls/upload`);
+    request.setRequestHeader('Authorization', `Bearer ${token}`);
+    request.setRequestHeader('Idempotency-Key', crypto.randomUUID());
+    request.setRequestHeader('Accept-Language', language);
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 100));
+    };
+    request.onerror = () => reject(new Error(language === 'ar'
+      ? 'تعذر الاتصال بخادم المعالجة. تحقق من تشغيل الخادم.'
+      : 'Could not reach the processing server. Check that it is running.'));
+    request.onload = () => {
+      let payload;
+      try {
+        payload = JSON.parse(request.responseText);
+      } catch {
+        reject(new Error(language === 'ar' ? 'أعاد الخادم استجابة غير صالحة.' : 'The server returned an invalid response.'));
+        return;
+      }
+      if (request.status < 200 || request.status >= 300) {
+        reject(new Error(payload?.error?.message || (language === 'ar'
+          ? 'تعذر رفع التسجيل. حاول مجددًا.'
+          : 'The recording could not be uploaded. Please try again.')));
+        return;
+      }
+      resolve(payload);
+    };
+    request.send(formData);
+  });
+}
+
+export async function downloadCallRecording(callId, language) {
+  const token = await getIdToken(language);
+  const response = await apiFetch(`${apiBaseUrl}/api/calls/${encodeURIComponent(callId)}/audio`, {
+    headers: { Authorization: `Bearer ${token}`, 'Accept-Language': language },
+  }, language);
+  if (!response.ok) await readApiResponse(response, language);
+  return response.blob();
+}
+
+export async function deleteCallFromApi(callId, language = 'en') {
+  const token = await getIdToken(language);
+  const response = await apiFetch(`${apiBaseUrl}/api/calls/${encodeURIComponent(callId)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}`, 'Accept-Language': language },
+  }, language);
+  return readApiResponse(response, language);
+}
+
+export async function retryCallProcessing(callId, language = 'en') {
+  const token = await getIdToken(language);
+  const response = await apiFetch(`${apiBaseUrl}/api/calls/${encodeURIComponent(callId)}/retry`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Accept-Language': language },
+  }, language);
+  return readApiResponse(response, language);
 }

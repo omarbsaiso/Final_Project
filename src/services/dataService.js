@@ -14,7 +14,7 @@ import {
 import { db, isFirebaseConfigured } from '../firebase/client';
 import { demoCalls, demoDocuments, demoUsers } from '../data/demoData';
 import { PRIVATE_ADMIN_UID } from '../constants/access';
-import { deleteCallRecording } from './storageService';
+import { deleteCallFromApi } from './storageService';
 
 function localRead(key, fallback) {
   try {
@@ -53,46 +53,13 @@ export async function getCall(callId, user) {
   return snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
 }
 
-export async function createCall(call, callId) {
-  if (!isFirebaseConfigured) {
-    const calls = localRead('call-miner-calls', demoCalls);
-    const created = { ...call, id: `CM-${Math.floor(25000 + Math.random() * 74999)}` };
-    localWrite('call-miner-calls', [created, ...calls]);
-    return created;
-  }
-  const reference = callId ? doc(db, 'calls', callId) : doc(collection(db, 'calls'));
-  await setDoc(reference, { ...call, createdAt: new Date().toISOString() });
-  return { ...call, id: reference.id };
-}
-
-export function createCallId() {
-  return isFirebaseConfigured ? doc(collection(db, 'calls')).id : null;
-}
-
-export async function deleteCall(call) {
+export async function deleteCall(call, language = 'en') {
   if (!isFirebaseConfigured) {
     localWrite('call-miner-calls', localRead('call-miner-calls', demoCalls).filter((item) => item.id !== call.id));
     localWrite('call-miner-feedback', localRead('call-miner-feedback', []).filter((item) => item.callId !== call.id));
     return;
   }
-
-  const feedback = await getDocs(query(collection(db, 'feedback'), where('callId', '==', call.id)));
-  if (feedback.size > 499) {
-    throw new Error('This call has too many feedback records to delete in one operation.');
-  }
-  const batch = writeBatch(db);
-  feedback.docs.forEach((item) => batch.delete(item.ref));
-  batch.delete(doc(db, 'calls', call.id));
-  await batch.commit();
-
-  if (call.storagePath) {
-    try {
-      await deleteCallRecording(call.storagePath);
-    } catch (error) {
-      console.error('[Calls] Call removed but audio cleanup failed', { code: error?.code || error?.name || 'StorageError' });
-      throw new Error('The call and its feedback were deleted, but its audio file could not be removed. Contact an administrator.');
-    }
-  }
+  await deleteCallFromApi(call.id, language);
 }
 
 export async function updateCall(callId, updates) {
