@@ -11,6 +11,7 @@ export default function Header({ onMenu }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [hasUnread, setHasUnread] = useState(true);
+  const [logoutError, setLogoutError] = useState('');
   const searchRef = useRef(null);
   const navigate = useNavigate();
 
@@ -28,6 +29,16 @@ export default function Header({ onMenu }) {
   function submitSearch(event) {
     event.preventDefault();
     if (search.trim()) navigate(`/calls?search=${encodeURIComponent(search.trim())}`);
+  }
+
+  async function handleLogout() {
+    setLogoutError('');
+    try {
+      await logout();
+      navigate('/login', { replace: true });
+    } catch {
+      setLogoutError('تعذر تسجيل الخروج. يرجى المحاولة مجددًا.');
+    }
   }
 
   return (
@@ -52,7 +63,8 @@ export default function Header({ onMenu }) {
           {menuOpen && <div className="profile-dropdown">
             <Link to="/settings" onClick={() => setMenuOpen(false)}><UserRound size={16} />My profile</Link>
             <Link to="/settings" onClick={() => setMenuOpen(false)}><Settings size={16} />Settings</Link>
-            <button onClick={logout}><span className="dropdown-logout">↗</span>{t('logout')}</button>
+            {logoutError && <p className="form-error" role="alert">{logoutError}</p>}
+            <button onClick={handleLogout}><span className="dropdown-logout">↗</span>{t('logout')}</button>
           </div>}
         </div>
       </div>

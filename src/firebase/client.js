@@ -1,6 +1,7 @@
 import { getApp, getApps, initializeApp } from 'firebase/app';
 import { browserLocalPersistence, getAuth, setPersistence } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -19,11 +20,12 @@ export const isFirebaseConfigured = Boolean(
 );
 
 export const firebaseApp = isFirebaseConfigured
-  ? (getApps().length ? getApp() : initializeApp(firebaseConfig))
+  ? (getApps().find((app) => app.name === '[DEFAULT]') || initializeApp(firebaseConfig))
   : null;
 
 export const auth = firebaseApp ? getAuth(firebaseApp) : null;
 export const db = firebaseApp ? getFirestore(firebaseApp) : null;
+export const storage = firebaseApp ? getStorage(firebaseApp) : null;
 export const authPersistence = auth
   ? setPersistence(auth, browserLocalPersistence)
   : Promise.resolve();

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowDownUp, ChevronDown, ChevronLeft, ChevronRight, Download, Filter, Headphones, Plus, Search, SlidersHorizontal, UploadCloud } from 'lucide-react';
+import { ArrowDownUp, ChevronDown, ChevronLeft, ChevronRight, Download, Filter, Headphones, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import StatusBadge from '../components/StatusBadge';
 import UploadDialog from '../components/UploadDialog';
@@ -7,13 +7,14 @@ import { useAuth } from '../context/AuthContext';
 import { usePreferences } from '../context/PreferencesContext';
 import { isFirebaseConfigured } from '../firebase/client';
 import { demoCalls } from '../data/demoData';
-import { listCalls } from '../services/dataService';
+import { deleteCall, listCalls } from '../services/dataService';
 import { formatDateTime, formatDuration } from '../utils/format';
 
 export default function CallsPage() {
   const { user } = useAuth();
   const { t } = usePreferences();
   const demoMode = !isFirebaseConfigured;
+  const sampleWorkspace = demoMode;
   const [searchParams, setSearchParams] = useSearchParams();
   const [calls, setCalls] = useState([]);
   const [search, setSearch] = useState(searchParams.get('search') || '');
@@ -22,6 +23,7 @@ export default function CallsPage() {
   const [sortNewest, setSortNewest] = useState(true);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [deletingCallId, setDeletingCallId] = useState('');
   const [error, setError] = useState('');
 
   async function loadCalls() {
@@ -41,6 +43,20 @@ export default function CallsPage() {
     const value = searchParams.get('search') || '';
     setSearch(value);
   }, [searchParams]);
+
+  async function removeCall(call) {
+    if (!window.confirm(`Delete call ${call.id} and its feedback?`)) return;
+    setDeletingCallId(call.id);
+    setError('');
+    try {
+      await deleteCall(call);
+      setCalls((current) => current.filter((item) => item.id !== call.id));
+    } catch (deleteError) {
+      setError(deleteError.message || 'Could not delete this call.');
+    } finally {
+      setDeletingCallId('');
+    }
+  }
   useEffect(() => {
     const value = searchParams.get('status');
     setStatus(['Reviewed', 'Needs review', 'Processing'].includes(value) ? value : 'All status');
@@ -56,10 +72,10 @@ export default function CallsPage() {
     : new Date(a.date || a.createdAt || 0) - new Date(b.date || b.createdAt || 0)), [calls, search, status, sentiment, sortNewest]);
   const averageScore = calls.filter((call) => Number.isFinite(call.score));
   const reviewCount = calls.filter((call) => call.status === 'Needs review').length;
-  const totalCount = demoMode ? calls.length || demoCalls.length : calls.length;
+  const totalCount = sampleWorkspace ? calls.length || demoCalls.length : calls.length;
   const averageDisplay = averageScore.length
     ? `${Math.round(averageScore.reduce((sum, call) => sum + call.score, 0) / averageScore.length)}%`
-    : demoMode ? '89%' : '—';
+    : sampleWorkspace ? '89%' : '—';
 
   function updateSearch(value) {
     setSearch(value);
@@ -83,11 +99,11 @@ export default function CallsPage() {
     <div className="page-enter">
       <div className="page-heading">
         <div><div className="eyebrow-label">CALL LIBRARY <span className="eyebrow-dot" /> QUALITY & INSIGHTS</div><h1>Calls</h1><p>Review conversations and discover what matters to your customers.</p></div>
-        <div className="heading-actions"><button className="btn btn-outline-custom" onClick={exportCalls}><Download size={16} />Export</button>{demoMode ? <button className="btn btn-primary-custom" onClick={() => setUploadOpen(true)}><Plus size={17} />{t('uploadCall')}</button> : <button className="btn btn-primary-custom" disabled title="Audio uploads are unavailable until Firebase Storage is enabled"><Plus size={17} />Audio uploads unavailable</button>}</div>
+        <div className="heading-actions"><button className="btn btn-outline-custom" onClick={exportCalls}><Download size={16} />Export</button>{demoMode || user?.role === 'Admin' ? <button className="btn btn-primary-custom" onClick={() => setUploadOpen(true)}><Plus size={17} />{t('uploadCall')}</button> : <button className="btn btn-primary-custom" disabled title="Administrator access is required to upload audio"><Plus size={17} />Audio uploads require Admin</button>}</div>
       </div>
       <div className="calls-overview-strip">
         <div><span className="overview-icon overview-icon-blue"><Headphones size={17} /></span><span><strong>{totalCount}</strong><small>Total recordings</small></span></div>
-        <div><span className="overview-icon overview-icon-orange"><Filter size={17} /></span><span><strong>{demoMode ? reviewCount || 2 : reviewCount}</strong><small>Need review</small></span></div>
+        <div><span className="overview-icon overview-icon-orange"><Filter size={17} /></span><span><strong>{sampleWorkspace ? reviewCount || 2 : reviewCount}</strong><small>Need review</small></span></div>
         <div><span className="overview-icon overview-icon-green"><SlidersHorizontal size={17} /></span><span><strong>{averageDisplay}</strong><small>Avg. QA score</small></span></div>
       </div>
       <section className="panel calls-panel">
@@ -114,7 +130,7 @@ export default function CallsPage() {
                   <td><span className={`sentiment-pill sentiment-${String(call.sentiment || 'pending').toLowerCase()}`}><i />{call.sentiment || 'Pending'}</span></td>
                   <td>{Number.isFinite(call.score) ? <span className={`qa-score ${call.score >= 90 ? 'score-high' : call.score >= 80 ? 'score-mid' : 'score-low'}`}>{call.score}%</span> : <span className="muted-cell">—</span>}</td>
                   <td><StatusBadge>{call.status}</StatusBadge></td>
-                  <td><Link className="row-chevron" to={`/calls/${call.id}`} aria-label={`View ${call.id}`}><ChevronRight size={17} /></Link></td>
+                  <td><div className="d-flex align-items-center gap-2"><Link className="row-chevron" to={`/calls/${call.id}`} aria-label={`View ${call.id}`}><ChevronRight size={17} /></Link>{user?.role === 'Admin' && <button className="row-chevron" aria-label={`Delete ${call.id}`} title="Delete call" disabled={deletingCallId === call.id} onClick={() => removeCall(call)}><Trash2 size={16} /></button>}</div></td>
                 </tr>) : <tr><td colSpan="9"><div className="table-empty"><div><Search size={22} /></div><strong>No calls found</strong><span>Try changing your search or filters, or upload a recording.</span></div></td></tr>}
             </tbody>
           </table>

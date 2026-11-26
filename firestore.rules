@@ -18,11 +18,23 @@ service cloud.firestore {
     }
 
     function hasRole(role) {
-      return isActiveUser() && userRecord().role == role;
+      return isActiveUser()
+        && userRecord().get('isDemo', false) != true
+        && userRecord().role == role;
+    }
+
+    function isDemoUser() {
+      return isActiveUser()
+        && userRecord().role == 'Demo'
+        && userRecord().isDemo == true;
     }
 
     function isAdmin() {
-      return hasRole('Admin');
+      return hasRole('Admin') || (
+        isActiveUser()
+        && request.auth.uid == 'mnLf1b3jZLUIqZlgDoAgK9QrMbp1'
+        && userRecord().role == 'admin'
+      );
     }
 
     function isSupervisor() {
@@ -35,7 +47,8 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
-      allow create: if isAdmin()
+      allow create: if (
+        isAdmin()
         && userId != request.auth.uid
         && request.resource.data.uid == userId
         && request.resource.data.keys().hasAll(['uid', 'fullName', 'email', 'role', 'createdAt', 'isActive'])
@@ -43,13 +56,29 @@ service cloud.firestore {
         && request.resource.data.email is string
         && request.resource.data.role in ['Admin', 'Supervisor', 'Agent']
         && request.resource.data.isActive is bool
-        && request.resource.data.keys().hasOnly(['uid', 'fullName', 'email', 'role', 'createdAt', 'isActive', 'team', 'language']);
+        && request.resource.data.keys().hasOnly(['uid', 'fullName', 'email', 'role', 'createdAt', 'isActive', 'team', 'language'])
+      ) || (
+        signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.uid == userId
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.role == 'Agent'
+        && request.resource.data.isActive == true
+        && request.resource.data.fullName is string
+        && request.resource.data.fullName.size() >= 2
+        && request.resource.data.createdAt is string
+        && request.resource.data.keys().hasAll(['uid', 'fullName', 'email', 'role', 'createdAt', 'isActive'])
+        && request.resource.data.keys().hasOnly(['uid', 'fullName', 'email', 'role', 'createdAt', 'isActive'])
+      );
       allow update: if isAdmin()
         && request.auth.uid != userId
         && request.resource.data.uid == resource.data.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fullName', 'role', 'team', 'isActive'])
         && request.resource.data.fullName is string
-        && request.resource.data.role in ['Admin', 'Supervisor', 'Agent']
+        && (
+          request.resource.data.role in ['Admin', 'Supervisor', 'Agent']
+          || (userId == 'mnLf1b3jZLUIqZlgDoAgK9QrMbp1' && request.resource.data.role == 'admin')
+        )
         && request.resource.data.isActive is bool;
       allow update: if isActiveUser() && request.auth.uid == userId
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fullName', 'language']);
@@ -58,6 +87,7 @@ service cloud.firestore {
 
     match /calls/{callId} {
       allow read: if signedIn() && (
+        (isDemoUser() && resource.data.isDemo == true) ||
         isAdmin() ||
         (isSupervisor() && resource.data.team == userRecord().team) ||
         (isAgent() && resource.data.agentId == request.auth.uid)
@@ -76,10 +106,13 @@ service cloud.firestore {
     }
 
     match /knowledgeBase/{documentId} {
-      allow read: if isActiveUser() && (
-        isAdmin() ||
-        resource.data.visibility == 'Everyone' ||
-        (isSupervisor() && resource.data.team == userRecord().team)
+      allow read: if signedIn() && (
+        (isDemoUser() && resource.data.isDemo == true) ||
+        (isActiveUser() && (
+          isAdmin() ||
+          resource.data.visibility == 'Everyone' ||
+          (isSupervisor() && resource.data.team == userRecord().team)
+        ))
       );
       allow create: if (isAdmin() ||
         (isSupervisor() && request.resource.data.team == userRecord().team))
@@ -101,10 +134,13 @@ service cloud.firestore {
         return get(/databases/$(database)/documents/calls/$(request.resource.data.callId)).data;
       }
 
-      allow read: if isActiveUser() && (
-        isAdmin() ||
-        (isSupervisor() && resource.data.team == userRecord().team) ||
-        (isAgent() && resource.data.agentId == request.auth.uid)
+      allow read: if signedIn() && (
+        (isDemoUser() && resource.data.isDemo == true) ||
+        (isActiveUser() && (
+          isAdmin() ||
+          (isSupervisor() && resource.data.team == userRecord().team) ||
+          (isAgent() && resource.data.agentId == request.auth.uid)
+        ))
       );
       allow create: if (isAdmin() || (isSupervisor() && request.resource.data.team == userRecord().team))
         && request.resource.data.supervisorId == request.auth.uid

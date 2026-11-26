@@ -8,13 +8,22 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => authService.subscribeToAuth((nextUser, error) => {
-    if (error) console.error('Unable to restore the current account:', error);
+    if (error) {
+      const code = typeof error.code === 'string' ? error.code : error.name || 'UnknownError';
+      console.error('[Auth] Session restore failed', { code });
+    }
     setUser(nextUser);
     setLoading(false);
   }), []);
 
-  const login = useCallback(async (email, password) => {
-    const nextUser = await authService.signIn(email, password);
+  const login = useCallback(async (email, password, language) => {
+    const nextUser = await authService.signIn(email, password, language);
+    setUser(nextUser);
+    return nextUser;
+  }, []);
+
+  const signup = useCallback(async (fullName, email, password, language) => {
+    const nextUser = await authService.signUp(fullName, email, password, language);
     setUser(nextUser);
     return nextUser;
   }, []);
@@ -24,7 +33,7 @@ export function AuthProvider({ children }) {
     setUser(null);
   }, []);
 
-  const value = useMemo(() => ({ user, loading, login, logout, setUser }), [user, loading, login, logout]);
+  const value = useMemo(() => ({ user, loading, login, signup, logout, setUser }), [user, loading, login, signup, logout]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

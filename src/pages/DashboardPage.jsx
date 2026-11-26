@@ -31,15 +31,25 @@ const monthChart = [
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const { t } = usePreferences();
+  const { language, t } = usePreferences();
   const demoMode = !isFirebaseConfigured;
   const [calls, setCalls] = useState([]);
   const [period, setPeriod] = useState('This week');
   const [error, setError] = useState('');
 
   useEffect(() => {
-    listCalls(user).then(setCalls).catch((loadError) => setError(loadError.message || 'Could not load calls.'));
-  }, [user]);
+    listCalls(user).then(setCalls).catch((loadError) => {
+      const code = typeof loadError?.code === 'string' ? loadError.code : loadError?.name || 'UnknownError';
+      console.error('[Dashboard] Calls load failed', { code });
+      setError(language === 'ar'
+        ? code === 'permission-denied'
+          ? 'ليس لهذا الحساب إذن قراءة بيانات لوحة التحكم. تحقق من دور Demo وقواعد Firestore والحقول isDemo للبيانات.'
+          : 'تعذر تحميل بيانات لوحة التحكم. تحقق من إعدادات Firestore وحاول مجددًا.'
+        : code === 'permission-denied'
+          ? 'This account cannot read dashboard data. Check the Demo role, Firestore rules, and isDemo record flags.'
+          : 'Dashboard data could not be loaded. Check Firestore setup and try again.');
+    });
+  }, [user, language]);
 
   const recent = calls.slice(0, 5);
   const average = useMemo(() => {

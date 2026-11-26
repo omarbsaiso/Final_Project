@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { AlertCircle, FileAudio2, FileText, Upload, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { isFirebaseConfigured } from '../firebase/client';
-import { createCall, createDocument } from '../services/dataService';
+import { createCall, createCallId, createDocument } from '../services/dataService';
+import { deleteCallRecording, uploadCallRecording } from '../services/storageService';
 
 const configs = {
   call: {
@@ -66,30 +67,41 @@ export default function UploadDialog({ kind, onClose, onSaved }) {
       setError('Choose a file before continuing.');
       return;
     }
-    if (kind === 'call' && isFirebaseConfigured) {
-      setError('Audio uploads are unavailable until Firebase Storage is enabled.');
-      return;
-    }
     setSaving(true);
     setError('');
     try {
       if (kind === 'call') {
-        await createCall({
-          customer: 'New customer',
-          customerInitials: 'NC',
-          agent: user.name,
-          agentId: user.uid,
-          team: user.team || 'Customer Care',
-          date: new Date().toISOString(),
-          duration: '—',
-          channel: 'Inbound',
-          sentiment: 'Pending',
-          score: null,
-          status: 'Processing',
-          topic: title.trim(),
-          summary: 'Analysis is pending. AI analysis has not run for this recording yet.',
-          recordingAvailable: false,
-        });
+        const callId = createCallId();
+        const storagePath = isFirebaseConfigured ? await uploadCallRecording(file, callId) : null;
+        try {
+          await createCall({
+            customer: 'New customer',
+            customerInitials: 'NC',
+            agent: user.name,
+            agentId: user.uid,
+            team: user.team || 'Customer Care',
+            date: new Date().toISOString(),
+            duration: '—',
+            channel: 'Inbound',
+            sentiment: 'Pending',
+            score: null,
+            status: 'Processing',
+            topic: title.trim(),
+            summary: 'Analysis is pending. AI analysis has not run for this recording yet.',
+            recordingAvailable: Boolean(storagePath),
+            ...(storagePath ? { storagePath } : {}),
+          }, callId);
+        } catch (saveError) {
+          if (storagePath) {
+            try {
+              await deleteCallRecording(storagePath);
+            } catch (cleanupError) {
+              console.error('[Upload] Could not remove the unlinked recording', { code: cleanupError?.code || cleanupError?.name || 'StorageError' });
+              throw new Error('The call could not be saved and its uploaded audio could not be removed. Contact an administrator.');
+            }
+          }
+          throw saveError;
+        }
       } else {
         await createDocument({
           name: file.name,
@@ -119,7 +131,7 @@ export default function UploadDialog({ kind, onClose, onSaved }) {
         </div>
         <form onSubmit={submit}>
           <div className="alert alert-info py-2">{kind === 'call'
-            ? 'Demo mode only: the selected audio is not uploaded or saved.'
+            ? isFirebaseConfigured ? 'The recording will be stored privately in Firebase Storage.' : 'Local demo mode: the selected audio is not uploaded.'
             : 'Firebase Storage is postponed. Only document details are saved; the selected file is not stored.'}</div>
           <label className="form-label" htmlFor="file-title">{kind === 'call' ? 'Call topic' : 'Document details'}</label>
           {kind === 'call' ? (
@@ -149,7 +161,7 @@ export default function UploadDialog({ kind, onClose, onSaved }) {
           {error && <div className="form-error mt-3"><AlertCircle size={16} />{error}</div>}
           <div className="dialog-actions">
             <button type="button" className="btn btn-light" onClick={onClose} disabled={saving}>Cancel</button>
-            <button type="submit" className="btn btn-primary-custom" disabled={saving}>{saving ? 'Saving…' : kind === 'call' ? 'Save demo call' : 'Save document details'}</button>
+            <button type="submit" className="btn btn-primary-custom" disabled={saving}>{saving ? 'Saving…' : kind === 'call' ? 'Save call' : 'Save document details'}</button>
           </div>
         </form>
       </section>

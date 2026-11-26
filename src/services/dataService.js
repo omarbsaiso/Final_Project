@@ -13,6 +13,8 @@ import {
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../firebase/client';
 import { demoCalls, demoDocuments, demoUsers } from '../data/demoData';
+import { PRIVATE_ADMIN_UID } from '../constants/access';
+import { deleteCallRecording } from './storageService';
 
 function localRead(key, fallback) {
   try {
@@ -39,6 +41,7 @@ export async function listCalls(user) {
   const constraints = [];
   if (user.role === 'Supervisor') constraints.push(where('team', '==', user.team));
   if (user.role === 'Agent') constraints.push(where('agentId', '==', user.uid));
+  if (user.role === 'Demo') constraints.push(where('isDemo', '==', true));
   constraints.push(orderBy('createdAt', 'desc'));
   const snapshot = await getDocs(query(collection(db, 'calls'), ...constraints));
   return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
@@ -50,15 +53,46 @@ export async function getCall(callId, user) {
   return snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
 }
 
-export async function createCall(call) {
+export async function createCall(call, callId) {
   if (!isFirebaseConfigured) {
     const calls = localRead('call-miner-calls', demoCalls);
     const created = { ...call, id: `CM-${Math.floor(25000 + Math.random() * 74999)}` };
     localWrite('call-miner-calls', [created, ...calls]);
     return created;
   }
-  const reference = await addDoc(collection(db, 'calls'), { ...call, createdAt: new Date().toISOString() });
+  const reference = callId ? doc(db, 'calls', callId) : doc(collection(db, 'calls'));
+  await setDoc(reference, { ...call, createdAt: new Date().toISOString() });
   return { ...call, id: reference.id };
+}
+
+export function createCallId() {
+  return isFirebaseConfigured ? doc(collection(db, 'calls')).id : null;
+}
+
+export async function deleteCall(call) {
+  if (!isFirebaseConfigured) {
+    localWrite('call-miner-calls', localRead('call-miner-calls', demoCalls).filter((item) => item.id !== call.id));
+    localWrite('call-miner-feedback', localRead('call-miner-feedback', []).filter((item) => item.callId !== call.id));
+    return;
+  }
+
+  const feedback = await getDocs(query(collection(db, 'feedback'), where('callId', '==', call.id)));
+  if (feedback.size > 499) {
+    throw new Error('This call has too many feedback records to delete in one operation.');
+  }
+  const batch = writeBatch(db);
+  feedback.docs.forEach((item) => batch.delete(item.ref));
+  batch.delete(doc(db, 'calls', call.id));
+  await batch.commit();
+
+  if (call.storagePath) {
+    try {
+      await deleteCallRecording(call.storagePath);
+    } catch (error) {
+      console.error('[Calls] Call removed but audio cleanup failed', { code: error?.code || error?.name || 'StorageError' });
+      throw new Error('The call and its feedback were deleted, but its audio file could not be removed. Contact an administrator.');
+    }
+  }
 }
 
 export async function updateCall(callId, updates) {
@@ -78,6 +112,10 @@ export async function listDocuments(user) {
   const documents = collection(db, 'knowledgeBase');
   if (user.role === 'Admin') {
     const snapshot = await getDocs(query(documents, orderBy('uploadedAt', 'desc')));
+    return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+  }
+  if (user.role === 'Demo') {
+    const snapshot = await getDocs(query(documents, where('isDemo', '==', true), orderBy('uploadedAt', 'desc')));
     return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
   }
   const publicQuery = query(documents, where('visibility', '==', 'Everyone'), orderBy('uploadedAt', 'desc'));
@@ -125,7 +163,8 @@ export async function listUsers() {
     const data = item.data();
     const fullName = data.fullName || data.name || '';
     const isActive = data.isActive ?? data.active ?? false;
-    return { ...data, uid: item.id, fullName, name: fullName, isActive, active: isActive };
+    const role = item.id === PRIVATE_ADMIN_UID && data.role === 'admin' ? 'Admin' : data.role;
+    return { ...data, uid: item.id, role, fullName, name: fullName, isActive, active: isActive };
   });
 }
 
@@ -136,6 +175,7 @@ export async function listFeedback(callId, user) {
   const filters = [where('callId', '==', callId)];
   if (user.role === 'Supervisor') filters.push(where('team', '==', user.team));
   if (user.role === 'Agent') filters.push(where('agentId', '==', user.uid));
+  if (user.role === 'Demo') filters.push(where('isDemo', '==', true));
   const snapshot = await getDocs(query(
     collection(db, 'feedback'),
     ...filters,

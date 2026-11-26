@@ -564,6 +564,9 @@ a:hover { color: var(--blue); }
 .password-toggle { width: 34px; height: 36px; position: absolute; top: 3px; right: 4px; display: grid; place-items: center; color: #939cab; border: 0; background: transparent; }
 .login-submit { width: 100%; min-height: 41px; justify-content: center; margin-top: 20px; }
 .login-submit svg { margin-left: auto; }
+.login-switch { margin-top: 17px; color: #808b9d; font-size: 10px; text-align: center; }
+.login-switch button { padding: 0 3px; color: #4d67c7; border: 0; background: transparent; font-size: inherit; font-weight: 700; }
+.login-switch button:hover { color: #304fb0; }
 .login-mobile-logo { display: none; }
 .demo-access { margin-top: 23px; padding: 12px; border: 1px solid #e8ebf2; border-radius: 8px; background: #fafbfe; }
 .demo-access > strong { display: block; color: #49566d; font-size: 10px; }
