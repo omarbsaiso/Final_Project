@@ -102,6 +102,63 @@ firestore.rules
 firestore.indexes.json
 ```
 
+## Real AI analysis backend
+
+Call Miner can process real recordings through a separate Express backend. Firebase Storage is intentionally not used: the browser sends the audio only to the backend, the backend uses a temporary OS directory for processing, and the file is deleted immediately after transcription/analysis. No permanent audio copy is stored.
+
+### Provider selection
+
+- **Deepgram** is the default Speech-to-Text provider. Its documented free starting credit, local-file API, Arabic support, MP3/WAV/M4A handling, speaker diarization, and documented file limits suit a university prototype. Quotas and account terms can change.
+- **Groq** is the default LLM provider. It provides a developer API and structured JSON generation with a free/development tier, subject to changing quotas and rate limits. The default model is `llama-3.3-70b-versatile`.
+- **AssemblyAI** and **Gemini** are supported alternatives by setting `STT_PROVIDER=assemblyai` or `LLM_PROVIDER=gemini`.
+
+### Backend setup
+
+1. Copy `.env.example` to `.env` and add the Firebase web values for the React app.
+2. Add a private Firebase Admin credential method: `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_CLIENT_EMAIL` + `FIREBASE_PRIVATE_KEY`, or `GOOGLE_APPLICATION_CREDENTIALS`.
+3. Add `STT_API_KEY` and `LLM_API_KEY`. Do not place them in `VITE_` variables.
+4. Install and start both processes:
+
+```bash
+npm install
+npm run dev:all
+```
+
+This starts Vite on its printed local port and the API on `http://localhost:3001`. The Vite `/api` proxy forwards uploads to Express. The backend can also be started alone with `npm run server`.
+
+When Firebase configuration is absent, the app remains in Demo Mode and the upload dialog creates clearly labeled sample metadata instead of calling the AI backend.
+
+### API authentication and Firestore
+
+The upload request sends the signed-in Firebase user's ID token. The backend verifies it with Firebase Admin, checks `users/{uid}.isActive`, and authorizes the call's team/agent ownership before creating `calls/{callId}`. It writes `pending`, `processing`, `completed`, or `failed` status data and provider metadata.
+
+No Firebase Storage dependency is introduced. This is suitable for local demonstrations, but temporary local disk storage means a serverless or scaled deployment needs a shared ephemeral upload approach or a separately evaluated object-storage provider.
+
+### Manual provider testing
+
+Because API credentials are not bundled, real calls require manual configuration. Test missing keys, invalid formats, provider failures, successful transcription, successful JSON analysis, Firestore persistence, and retrieval separately. The app reports provider/LLM/Firestore failures and marks the call `Failed`; it never substitutes sample analysis.
+
+## Example real analysis JSON
+
+```json
+{
+  "summary": "طلب العميل تغيير باقة الإنترنت وشرح الموظف تكلفة التحويل ومواعيد تطبيقها.",
+  "topic": "تغيير باقة الإنترنت",
+  "category": "خدمة الاشتراكات",
+  "customerSentimentCode": "Neutral",
+  "customerSentiment": "محايد",
+  "mainIssue": "استفسار العميل عن باقة أسرع وتكلفة التحويل",
+  "satisfactionIndicators": ["السؤال طُرح مباشرة ولا تتوفر مؤشرات رضا إضافية"],
+  "qualityScore": 82,
+  "agentStrengths": ["شرح الخيارات بوضوح"],
+  "agentWeaknesses": ["لم يؤكد الموظف الخطوات التالية بشكل واضح"],
+  "compliance": "تم الالتزام بشرح الخدمة، ولا تتوفر بيانات للتحقق من جميع سياسات الامتثال",
+  "recommendations": ["تأكيد التاريخ النهائي لتطبيق الباقة"],
+  "criteria": [{ "name": "وضوح الشرح", "score": 85, "note": "الشرح واضح ومتسق" }],
+  "keywords": ["تغيير الباقة", "تكلفة التحويل"]
+}
+```
+
 ## Build and deployment
 
 Run a production build locally:

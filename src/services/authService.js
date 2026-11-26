@@ -8,7 +8,7 @@ import {
   signOut,
   updateProfile,
 } from 'firebase/auth';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import { auth, authPersistence, db, getSecondaryApp, isFirebaseConfigured } from '../firebase/client';
 import { demoUsers } from '../data/demoData';
 import { listUsers } from './dataService';

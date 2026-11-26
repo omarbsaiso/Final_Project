@@ -48,6 +48,13 @@ export default function DashboardPage() {
   }, [calls]);
   const needsReview = calls.filter((call) => call.status === 'Needs review').length;
   const callCount = demoMode ? 2846 : calls.length;
+  const positiveCalls = calls.filter((call) => ['Positive', 'إيجابي'].includes(call.sentiment)).length;
+  const neutralCalls = calls.filter((call) => ['Neutral', 'محايد'].includes(call.sentiment)).length;
+  const negativeCalls = calls.filter((call) => ['Negative', 'سلبي'].includes(call.sentiment)).length;
+  const sentimentTotal = positiveCalls + neutralCalls + negativeCalls;
+  const positivePercent = sentimentTotal ? Math.round((positiveCalls / sentimentTotal) * 100) : 0;
+  const neutralPercent = sentimentTotal ? Math.round((neutralCalls / sentimentTotal) * 100) : 0;
+  const negativePercent = sentimentTotal ? Math.round((negativeCalls / sentimentTotal) * 100) : 0;
   const recentCalls = recent.length ? recent : demoMode ? demoCalls.slice(0, 4) : [];
   const activeChart = period === 'This month' ? monthChart : period === 'Last week' ? lastWeekChart : chartData;
 
@@ -86,11 +93,11 @@ export default function DashboardPage() {
         </section>
         <section className="panel sentiment-panel">
           <div className="panel-heading"><div><h2>Sentiment overview</h2><p>Customer tone across calls</p></div><MoreHorizontal className="subtle-menu-button" aria-hidden="true" /></div>
-          <div className="sentiment-score"><div className="sentiment-score-icon"><Smile size={19} /></div><div><strong>Positive outlook</strong><span>Conversations are trending well</span></div><span className="sentiment-total">94%</span></div>
+          <div className="sentiment-score"><div className="sentiment-score-icon"><Smile size={19} /></div><div><strong>{demoMode ? 'Positive outlook' : sentimentTotal ? 'Real customer sentiment' : 'No sentiment data yet'}</strong><span>{demoMode ? 'Conversations are trending well' : 'Calculated from completed analyses'}</span></div><span className="sentiment-total">{demoMode ? '94%' : sentimentTotal ? `${positivePercent}%` : '—'}</span></div>
           <div className="sentiment-bars">
-            <div className="sentiment-row"><div><span>Positive</span><strong>68%</strong></div><div className="progress"><div className="progress-bar sentiment-positive" style={{ width: '68%' }} /></div></div>
-            <div className="sentiment-row"><div><span>Neutral</span><strong>24%</strong></div><div className="progress"><div className="progress-bar sentiment-neutral" style={{ width: '24%' }} /></div></div>
-            <div className="sentiment-row"><div><span>Negative</span><strong>8%</strong></div><div className="progress"><div className="progress-bar sentiment-negative" style={{ width: '8%' }} /></div></div>
+            <div className="sentiment-row"><div><span>Positive</span><strong>{demoMode ? '68%' : `${positivePercent}%`}</strong></div><div className="progress"><div className="progress-bar sentiment-positive" style={{ width: demoMode ? '68%' : `${positivePercent}%` }} /></div></div>
+            <div className="sentiment-row"><div><span>Neutral</span><strong>{demoMode ? '24%' : `${neutralPercent}%`}</strong></div><div className="progress"><div className="progress-bar sentiment-neutral" style={{ width: demoMode ? '24%' : `${neutralPercent}%` }} /></div></div>
+            <div className="sentiment-row"><div><span>Negative</span><strong>{demoMode ? '8%' : `${negativePercent}%`}</strong></div><div className="progress"><div className="progress-bar sentiment-negative" style={{ width: demoMode ? '8%' : `${negativePercent}%` }} /></div></div>
           </div>
           <div className="sentiment-insight"><Sparkles size={16} /><p><strong>Insight:</strong> Positive sentiment is up 6% this week, driven by faster first-call resolutions.</p></div>
           <Link className="panel-link" to="/calls">Explore call insights <ArrowRight size={15} /></Link>
@@ -115,7 +122,7 @@ export default function DashboardPage() {
         <section className="panel agents-panel">
           <div className="panel-heading"><div><h2>Top performers</h2><p>Standout agents this week</p></div><MoreHorizontal className="subtle-menu-button" aria-hidden="true" /></div>
           <div className="top-agents-list">
-            {topAgents.map((agent, index) => <div className="top-agent-row" key={agent.name}><span className="rank-number">0{index + 1}</span><span className={`user-avatar avatar-${agent.color}`}>{agent.initials}</span><span className="top-agent-info"><strong>{agent.name}</strong><small>{agent.role} · {agent.calls} calls</small></span><span className="top-agent-score"><Star size={13} fill="currentColor" />{agent.score}</span></div>)}
+            {demoMode ? topAgents.map((agent, index) => <div className="top-agent-row" key={agent.name}><span className="rank-number">0{index + 1}</span><span className={`user-avatar avatar-${agent.color}`}>{agent.initials}</span><span className="top-agent-info"><strong>{agent.name}</strong><small>{agent.role} · {agent.calls} calls</small></span><span className="top-agent-score"><Star size={13} fill="currentColor" />{agent.score}</span></div>) : <div className="dashboard-empty-state">Agent rankings become available after enough real calls are analyzed.</div>}
           </div>
           <div className="agent-team-footer"><div className="avatar-stack"><span className="user-avatar avatar-lavender">AJ</span><span className="user-avatar avatar-peach">SP</span><span className="user-avatar avatar-mint">EB</span><span className="user-avatar avatar-navy">+8</span></div><span>Top 3 of 11 agents</span><ArrowUpRight size={15} /></div>
         </section>
@@ -125,7 +132,7 @@ export default function DashboardPage() {
         <div className="small-insight-card"><div className="small-insight-icon insight-blue"><Clock3 size={17} /></div><div><span>AVERAGE HANDLE TIME</span><strong>8m 42s</strong><p>Down 34 seconds this week</p></div><span className="issue-trend issue-down"><ArrowRight size={14} /> 6%</span></div>
         <div className="small-insight-card"><div className="small-insight-icon insight-green"><CheckCircle2 size={17} /></div><div><span>FIRST-CALL RESOLUTION</span><strong>87.3%</strong><p>Above your 85% team target</p></div><span className="issue-trend"><Activity size={14} /> 2.4%</span></div>
       </div>
-      <div className="sample-note"><Sparkles size={14} /> Sample analytics are illustrative demo data and are not generated by AI.</div>
+      <div className="sample-note"><Sparkles size={14} /> {demoMode ? 'Sample analytics are illustrative demo data and are not generated by AI.' : 'Call totals, scores, reviews, and sentiment above are calculated from saved call records.'}</div>
     </div>
   );
 }

@@ -43,7 +43,7 @@ export default function CallsPage() {
   }, [searchParams]);
   useEffect(() => {
     const value = searchParams.get('status');
-    setStatus(['Reviewed', 'Needs review', 'Processing'].includes(value) ? value : 'All status');
+    setStatus(['Reviewed', 'Needs review', 'Processing', 'Failed'].includes(value) ? value : 'All status');
   }, [searchParams]);
 
   const filtered = useMemo(() => calls.filter((call) => {
@@ -83,7 +83,7 @@ export default function CallsPage() {
     <div className="page-enter">
       <div className="page-heading">
         <div><div className="eyebrow-label">CALL LIBRARY <span className="eyebrow-dot" /> QUALITY & INSIGHTS</div><h1>Calls</h1><p>Review conversations and discover what matters to your customers.</p></div>
-        <div className="heading-actions"><button className="btn btn-outline-custom" onClick={exportCalls}><Download size={16} />Export</button>{demoMode ? <button className="btn btn-primary-custom" onClick={() => setUploadOpen(true)}><Plus size={17} />{t('uploadCall')}</button> : <button className="btn btn-primary-custom" disabled title="Audio uploads are unavailable until Firebase Storage is enabled"><Plus size={17} />Audio uploads unavailable</button>}</div>
+        <div className="heading-actions"><button className="btn btn-outline-custom" onClick={exportCalls}><Download size={16} />Export</button>{demoMode ? <button className="btn btn-primary-custom" onClick={() => setUploadOpen(true)}><Plus size={17} />{t('uploadCall')}</button> : <button className="btn btn-primary-custom" onClick={() => setUploadOpen(true)}><Plus size={17} />{t('uploadCall')}</button>}</div>
       </div>
       <div className="calls-overview-strip">
         <div><span className="overview-icon overview-icon-blue"><Headphones size={17} /></span><span><strong>{totalCount}</strong><small>Total recordings</small></span></div>
@@ -95,8 +95,8 @@ export default function CallsPage() {
           <div className="calls-toolbar-title"><h2>All calls <span>{filtered.length}</span></h2><p>Search, filter and review your recordings</p></div>
           <div className="calls-filters">
             <label className="table-search"><Search size={16} /><input value={search} onChange={(event) => updateSearch(event.target.value)} placeholder="Search calls…" /></label>
-            <select className="form-select filter-select" aria-label="Filter by status" value={status} onChange={(event) => setStatus(event.target.value)}><option>All status</option><option>Reviewed</option><option>Needs review</option><option>Processing</option></select>
-            <select className="form-select filter-select" aria-label="Filter by sentiment" value={sentiment} onChange={(event) => setSentiment(event.target.value)}><option>All sentiment</option><option>Positive</option><option>Neutral</option><option>Negative</option><option>Pending</option></select>
+            <select className="form-select filter-select" aria-label="Filter by status" value={status} onChange={(event) => setStatus(event.target.value)}><option>All status</option><option>Reviewed</option><option>Needs review</option><option>Processing</option><option>Failed</option></select>
+            <select className="form-select filter-select" aria-label="Filter by sentiment" value={sentiment} onChange={(event) => setSentiment(event.target.value)}><option>All sentiment</option><option>Positive</option><option>Neutral</option><option>Negative</option><option>إيجابي</option><option>محايد</option><option>سلبي</option><option>Pending</option></select>
           </div>
         </div>
         {error && <div className="alert alert-warning mx-4">{error}</div>}

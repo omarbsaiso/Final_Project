@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { AlertCircle, FileAudio2, FileText, Upload, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { isFirebaseConfigured } from '../firebase/client';
+import { auth, isFirebaseConfigured } from '../firebase/client';
 import { createCall, createDocument } from '../services/dataService';
 
 const configs = {
   call: {
     title: 'Upload a call recording',
-    accept: '.mp3,.wav,audio/mpeg,audio/wav,audio/x-wav',
-    types: 'MP3 or WAV · Up to 100 MB',
+    accept: '.mp3,.wav,.m4a,audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a',
+    types: 'MP3, WAV or M4A · Up to 100 MB',
     icon: FileAudio2,
   },
   document: {
@@ -33,16 +33,21 @@ export default function UploadDialog({ kind, onClose, onSaved }) {
   function validateFile(selected) {
     if (!selected) return;
     const valid = kind === 'call'
-      ? /\.(mp3|wav)$/i.test(selected.name)
+      ? /\.(mp3|wav|m4a)$/i.test(selected.name)
       : /\.(pdf|docx|txt)$/i.test(selected.name);
     const limit = kind === 'call' ? 100 : 25;
     if (!valid) {
-      setError(kind === 'call' ? 'Choose an MP3 or WAV recording.' : 'Choose a PDF, DOCX or TXT document.');
+      setError(kind === 'call' ? 'Choose an MP3, WAV or M4A recording.' : 'Choose a PDF, DOCX or TXT document.');
       setFile(null);
       return;
     }
     if (selected.size > limit * 1024 * 1024) {
       setError(`Files must be smaller than ${limit} MB.`);
+      setFile(null);
+      return;
+    }
+    if (selected.size < 1024) {
+      setError('The selected file is empty or too small to be a valid recording.');
       setFile(null);
       return;
     }
@@ -66,30 +71,47 @@ export default function UploadDialog({ kind, onClose, onSaved }) {
       setError('Choose a file before continuing.');
       return;
     }
-    if (kind === 'call' && isFirebaseConfigured) {
-      setError('Audio uploads are unavailable until Firebase Storage is enabled.');
-      return;
-    }
     setSaving(true);
     setError('');
     try {
       if (kind === 'call') {
-        await createCall({
-          customer: 'New customer',
-          customerInitials: 'NC',
-          agent: user.name,
-          agentId: user.uid,
-          team: user.team || 'Customer Care',
-          date: new Date().toISOString(),
-          duration: '—',
-          channel: 'Inbound',
-          sentiment: 'Pending',
-          score: null,
-          status: 'Processing',
-          topic: title.trim(),
-          summary: 'Analysis is pending. AI analysis has not run for this recording yet.',
-          recordingAvailable: false,
-        });
+        if (!isFirebaseConfigured) {
+          await createCall({
+            customer: 'New customer',
+            customerInitials: 'NC',
+            agent: user.name,
+            agentId: user.uid,
+            team: user.team || 'Customer Care',
+            date: new Date().toISOString(),
+            duration: '—',
+            channel: 'Inbound',
+            sentiment: 'Pending',
+            score: null,
+            status: 'Processing',
+            topic: title.trim(),
+            summary: 'Analysis is pending. AI analysis has not run for this recording yet.',
+            recordingAvailable: false,
+            analysisSource: 'sample-summary',
+          });
+        } else {
+          if (!auth?.currentUser) throw new Error('Please sign in again before uploading a recording.');
+          const token = await auth.currentUser.getIdToken();
+          const form = new FormData();
+          form.append('audio', file);
+          form.append('metadata', JSON.stringify({
+            topic: title.trim(),
+            agent: user.name,
+            agentId: user.uid,
+            team: user.team || 'Customer Care',
+          }));
+          const response = await fetch('/api/calls/analyze', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+            body: form,
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(payload.error || 'The recording could not be analyzed.');
+        }
       } else {
         await createDocument({
           name: file.name,
@@ -114,12 +136,12 @@ export default function UploadDialog({ kind, onClose, onSaved }) {
       <section className="upload-dialog" role="dialog" aria-modal="true" aria-labelledby="upload-title">
         <div className="dialog-heading">
           <div className="dialog-icon"><Icon size={20} /></div>
-          <div><h2 id="upload-title">{config.title}</h2><p>{kind === 'call' ? 'Add a demo call entry to your library.' : 'Save resource details for your support team.'}</p></div>
+          <div><h2 id="upload-title">{config.title}</h2><p>{kind === 'call' ? (isFirebaseConfigured ? 'Process a real call with speech-to-text and AI.' : 'Add a demo call entry to your library.') : 'Save resource details for your support team.'}</p></div>
           <button className="icon-button dialog-close" aria-label="Close dialog" onClick={onClose} disabled={saving}><X size={19} /></button>
         </div>
         <form onSubmit={submit}>
           <div className="alert alert-info py-2">{kind === 'call'
-            ? 'Demo mode only: the selected audio is not uploaded or saved.'
+            ? (isFirebaseConfigured ? 'Real Analysis Mode: the recording is processed temporarily, not stored in Firebase Storage.' : 'Demo mode only: the selected audio is not uploaded or saved.')
             : 'Firebase Storage is postponed. Only document details are saved; the selected file is not stored.'}</div>
           <label className="form-label" htmlFor="file-title">{kind === 'call' ? 'Call topic' : 'Document details'}</label>
           {kind === 'call' ? (
@@ -149,7 +171,7 @@ export default function UploadDialog({ kind, onClose, onSaved }) {
           {error && <div className="form-error mt-3"><AlertCircle size={16} />{error}</div>}
           <div className="dialog-actions">
             <button type="button" className="btn btn-light" onClick={onClose} disabled={saving}>Cancel</button>
-            <button type="submit" className="btn btn-primary-custom" disabled={saving}>{saving ? 'Saving…' : kind === 'call' ? 'Save demo call' : 'Save document details'}</button>
+            <button type="submit" className="btn btn-primary-custom" disabled={saving}>{saving ? 'Processing…' : kind === 'call' ? (isFirebaseConfigured ? 'Analyze recording' : 'Save demo call') : 'Save document details'}</button>
           </div>
         </form>
       </section>
